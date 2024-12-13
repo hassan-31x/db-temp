@@ -22,8 +22,10 @@ def donor_page():
 
 def profile():
     st.subheader("Donor Profile")
+    
+    # First, fetch current donor information
     query = """
-    SELECT d.name, bt.bloodType, d.lastDonationDate
+    SELECT d.name, bt.bloodType, d.lastDonationDate, d.contactInformation, d.medicalHistory, d.eligibilityStatus
     FROM Donor d
     JOIN BloodType bt ON d.bloodTypeId = bt.id
     JOIN User u ON d.userId = u.id
@@ -33,16 +35,52 @@ def profile():
     donor_info = cursor.fetchone()
     
     if donor_info:
-        st.write(f"Name: {donor_info[0]}")
-        st.write(f"Blood Type: {donor_info[1]}")
-        st.write(f"Last Donation: {donor_info[2]}")
+        # Create two columns
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### Personal Information")
+            # Edit name form
+            with st.form("edit_personal_info_form"):
+                new_name = st.text_input("Full Name", value=donor_info[0])
+                new_contact = st.text_area("Contact Information", value=donor_info[3])
+                submit_button = st.form_submit_button("Update Personal Information")
+                
+                if submit_button:
+                    try:
+                        update_query = """
+                        UPDATE Donor d
+                        JOIN User u ON d.userId = u.id
+                        SET d.name = %s, 
+                            d.contactInformation = %s,
+                            d.updatedAt = NOW()
+                        WHERE u.id = %s
+                        """
+                        cursor.execute(update_query, (new_name, new_contact, st.session_state.user['id']))
+                        cnx.commit()
+                        st.success("Personal information updated successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error updating information: {str(e)}")
+            
+            
+        
+        with col2:
+            st.markdown("### Other Information")
+            st.write(f"**Medical History:**")
+            st.text(donor_info[4])
+
+            st.write(f"**Blood Type:** {donor_info[1]}")
+            st.write(f"**Last Donation:** {donor_info[2] if donor_info[2] else 'No donations yet'}")
+            st.write(f"**Eligibility Status:** {'Eligible' if donor_info[5] else 'Not Eligible'}")
+            
 
 def appointments():
     st.subheader("Appointments")
     query = """
     SELECT DATE_FORMAT(a.appointmentDate, '%Y-%m-%d') as Date,
            TIME_FORMAT(a.appointmentTime, '%H:%i') as Time,
-           h.name as Location,
+           h.name as Location,all
            a.status as Status
     FROM Appointment a
     JOIN Hospital h ON a.hospitalId = h.id

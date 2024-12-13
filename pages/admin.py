@@ -35,18 +35,121 @@ def user_management():
 
 def hospital_approval():
     st.subheader("Hospital Approval")
+    
+    # Get all hospitals with their approval status
     query = """
-        SELECT h.name as 'Hospital Name', h.location as Location,
-        CASE 
-            WHEN h.bloodBankInventoryId IS NOT NULL THEN 'Approved'
-            ELSE 'Pending'
-        END as Status
+        SELECT 
+            h.id,
+            h.name as 'Hospital Name', 
+            h.location as Location,
+            h.bloodBankInventoryId,
+            CASE 
+                WHEN h.bloodBankInventoryId IS NOT NULL THEN 'Approved'
+                ELSE 'Pending'
+            END as Status
         FROM Hospital h
     """
     cursor.execute(query)
     data = cursor.fetchall()
-    hospitals = pd.DataFrame(data, columns=["Hospital Name", "Location", "Status"])
-    st.table(hospitals)
+    hospitals = pd.DataFrame(data, columns=["ID", "Hospital Name", "Location", "InventoryID", "Status"])
+    
+    # Display hospitals with action buttons
+    st.markdown("### Hospital Approval Management")
+    
+    for _, hospital in hospitals.iterrows():
+        with st.expander(f"{hospital['Hospital Name']} - {hospital['Status']}"):
+            st.write(f"**Location:** {hospital['Location']}")
+            st.write(f"**Current Status:** {hospital['Status']}")
+            
+            if hospital['Status'] == 'Pending':
+                if st.button(f"Approve {hospital['Hospital Name']}", key=f"approve_{hospital['ID']}"):
+                    try:
+                        # Start transaction
+                        cursor.execute("START TRANSACTION")
+                        
+                        # First create a default inventory entry for the hospital
+                        inventory_query = """
+                        INSERT INTO BloodBankInventory 
+                        (hospitalId, bloodTypeId, quantityInStock, expirationDate, createdAt, updatedAt)
+                        SELECT 
+                            %s, 
+                            bt.id, 
+                            0, 
+                            DATE(DATE_ADD(CURDATE(), INTERVAL 1 YEAR)), 
+                            NOW(), 
+                            NOW()
+                        FROM BloodType bt
+                        """
+                        cursor.execute(inventory_query, (hospital['ID'],))
+                        
+                        # Get the ID of the first inventory entry
+                        cursor.execute("SELECT LAST_INSERT_ID()")
+                        inventory_id = cursor.fetchone()[0]
+                        
+                        # Update hospital with the inventory ID
+                        update_query = """
+                        UPDATE Hospital 
+                        SET bloodBankInventoryId = %s,
+                            updatedAt = NOW()
+                        WHERE id = %s
+                        """
+                        cursor.execute(update_query, (inventory_id, hospital['ID']))
+                        
+                        # Commit transaction
+                        cnx.commit()
+                        st.success(f"Successfully approved {hospital['Hospital Name']}")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        cursor.execute("ROLLBACK")
+                        st.error(f"Error approving hospital: {str(e)}")
+                        
+            else:  # Hospital is approved
+                if st.button(f"Revoke Approval for {hospital['Hospital Name']}", 
+                           key=f"revoke_{hospital['ID']}",
+                           type="secondary"):
+                    try:
+                        # Start transaction
+                        cursor.execute("START TRANSACTION")
+                        
+                        # First delete all inventory records
+                        delete_inventory_query = """
+                        DELETE FROM BloodBankInventory 
+                        WHERE hospitalId = %s
+                        """
+                        cursor.execute(delete_inventory_query, (hospital['ID'],))
+                        
+                        # Then update hospital to remove inventory ID
+                        update_query = """
+                        UPDATE Hospital 
+                        SET bloodBankInventoryId = NULL,
+                            updatedAt = NOW()
+                        WHERE id = %s
+                        """
+                        cursor.execute(update_query, (hospital['ID'],))
+                        
+                        # Commit transaction
+                        cnx.commit()
+                        st.success(f"Successfully revoked approval for {hospital['Hospital Name']}")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        cursor.execute("ROLLBACK")
+                        st.error(f"Error revoking approval: {str(e)}")
+    
+    # Display summary statistics
+    st.markdown("### Summary")
+    total_hospitals = len(hospitals)
+    approved_hospitals = len(hospitals[hospitals['Status'] == 'Approved'])
+    pending_hospitals = len(hospitals[hospitals['Status'] == 'Pending'])
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Hospitals", total_hospitals)
+    with col2:
+        st.metric("Approved Hospitals", approved_hospitals)
+    with col3:
+        st.metric("Pending Approvals", pending_hospitals)
 
 def blood_bank_inventory():
     st.subheader("Blood Bank Inventory")

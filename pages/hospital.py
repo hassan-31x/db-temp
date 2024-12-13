@@ -6,7 +6,8 @@ from a import cursor, cnx
 def hospital_page():
     st.title("Hospital Dashboard")
     
-    menu = ["Profile", "Blood Requests", "Appointments", "Inventory", "Dispatch", "Blood Drives"]
+    # menu = ["Profile", "Blood Requests", "Appointments", "Inventory", "Dispatch", "Blood Drives"]
+    menu = ["Profile", "Blood Requests", "Inventory", "Dispatch"]
     choice = st.sidebar.selectbox("Menu", menu)
     
     if choice == "Profile":
@@ -24,35 +25,158 @@ def hospital_page():
 
 def profile():
     st.subheader("Hospital Profile")
+    
+    # Fetch current hospital information
     query = """
-    SELECT h.name, h.location, h.contactInformation
+    SELECT h.id, h.name, h.location, h.contactInformation, h.bloodBankInventoryId,
+           DATE_FORMAT(h.createdAt, '%Y-%m-%d') as joinDate
     FROM Hospital h
     JOIN User u ON h.id = u.associatedHospitalId
     WHERE u.id = %s
     """
     cursor.execute(query, (st.session_state.user['id'],))
     hospital_info = cursor.fetchone()
-    st.write(f"Hospital Name: {hospital_info[0]}")
-    st.write(f"Location: {hospital_info[1]}")
-    st.write(f"Contact: {hospital_info[2]}")
+    
+    if hospital_info:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### Edit Hospital Information")
+            with st.form("edit_hospital_info_form"):
+                new_name = st.text_input("Hospital Name", value=hospital_info[1])
+                new_location = st.text_area("Location", value=hospital_info[2])
+                new_contact = st.text_area("Contact Information", value=hospital_info[3])
+                submit_button = st.form_submit_button("Update Hospital Information")
+                
+                if submit_button:
+                    try:
+                        update_query = """
+                        UPDATE Hospital h
+                        JOIN User u ON h.id = u.associatedHospitalId
+                        SET h.name = %s, 
+                            h.location = %s,
+                            h.contactInformation = %s,
+                            h.updatedAt = NOW()
+                        WHERE u.id = %s
+                        """
+                        cursor.execute(update_query, (new_name, new_location, new_contact, st.session_state.user['id']))
+                        cnx.commit()
+                        st.success("Hospital information updated successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error updating information: {str(e)}")
+        
+        with col2:
+            st.markdown("### Hospital Details")
+            st.write("**Registration Date:**", hospital_info[5])
+            
+            # Show blood bank inventory status
+            if hospital_info[4]:  # if bloodBankInventoryId exists
+                st.write("**Blood Bank Status:** Active")
+                
+            else:
+                st.write("**Blood Bank Status:** Pending Approval")
+                st.info("Your blood bank registration is under review by the administration.")
+            
+            # Show recent activity
+            st.markdown("#### Recent Activity")
+            activity_query = """
+            SELECT 
+                DATE_FORMAT(appointmentDate, '%Y-%m-%d') as Date,
+                COUNT(*) as 'Appointments'
+            FROM Appointment
+            WHERE hospitalId = %s
+            GROUP BY appointmentDate
+            ORDER BY appointmentDate DESC
+            LIMIT 5
+            """
+            cursor.execute(activity_query, (hospital_info[0],))
+            activity_data = cursor.fetchall()
+            
+            if activity_data:
+                activity_df = pd.DataFrame(activity_data, columns=['Date', 'Appointments'])
+                st.table(activity_df)
+            else:
+                st.write("No recent activity")
 
 def blood_requests():
     st.subheader("Blood Requests")
-    query = """
-    SELECT bt.bloodType as 'Blood Type',
-           br.requestedQuantity as Quantity,
-           br.requestStatus as Status,
-           DATE_FORMAT(br.createdAt, '%Y-%m-%d') as Date
-    FROM BloodRequest br
-    JOIN BloodType bt ON br.bloodTypeId = bt.id
-    JOIN Hospital h ON br.hospitalId = h.id
+    
+    # First check if hospital is approved
+    check_query = """
+    SELECT h.bloodBankInventoryId, h.id
+    FROM Hospital h
     JOIN User u ON h.id = u.associatedHospitalId
     WHERE u.id = %s
+    """
+    cursor.execute(check_query, (st.session_state.user['id'],))
+    hospital_status = cursor.fetchone()
+    
+    if not hospital_status or not hospital_status[0]:
+        st.warning("Your hospital is not approved yet. Blood request functionality will be available after approval.")
+        return
+        
+    # If approved, show existing requests
+    hospital_id = hospital_status[1]
+    query = """
+    SELECT 
+        bt.bloodType as 'Blood Type',
+        br.requestedQuantity as 'Requested Units',
+        br.fulfilledQuantity as 'Fulfilled Units',
+        br.urgencyLevel as 'Urgency',
+        br.requestStatus as 'Status',
+        DATE_FORMAT(br.createdAt, '%Y-%m-%d') as 'Request Date'
+    FROM BloodRequest br
+    JOIN BloodType bt ON br.bloodTypeId = bt.id
+    WHERE br.hospitalId = %s
     ORDER BY br.createdAt DESC
     """
-    cursor.execute(query, (st.session_state.user['id'],))
-    requests = pd.DataFrame(cursor.fetchall(), columns=['Blood Type', 'Quantity', 'Status', 'Date'])
-    st.table(requests)
+    cursor.execute(query, (hospital_id,))
+    requests = pd.DataFrame(cursor.fetchall(), 
+                          columns=['Blood Type', 'Requested Units', 'Fulfilled Units', 
+                                 'Urgency', 'Status', 'Request Date'])
+    
+    if not requests.empty:
+        st.markdown("### Current Requests")
+        st.table(requests)
+    else:
+        st.info("No blood requests found.")
+    
+    # Add new request form
+    st.markdown("### New Blood Request")
+    with st.form("blood_request_form"):
+        # Get blood types for dropdown
+        cursor.execute("SELECT id, bloodType FROM BloodType")
+        blood_types = {bt[1]: bt[0] for bt in cursor.fetchall()}
+        
+        selected_blood_type = st.selectbox("Blood Type", list(blood_types.keys()))
+        quantity = st.number_input("Quantity Required (units)", min_value=1, max_value=100)
+        urgency = st.selectbox("Urgency Level", ["Low", "Medium", "High", "Critical"])
+        
+        submitted = st.form_submit_button("Submit Request")
+        
+        if submitted:
+            try:
+                insert_query = """
+                INSERT INTO BloodRequest (
+                    hospitalId,
+                    bloodTypeId,
+                    urgencyLevel,
+                    requestStatus,
+                    requestedQuantity,
+                    fulfilledQuantity,
+                    createdAt,
+                    updatedAt
+                ) VALUES (%s, %s, %s, 'Pending', %s, 0, NOW(), NOW())
+                """
+                cursor.execute(insert_query, 
+                             (hospital_id, blood_types[selected_blood_type], 
+                              urgency, quantity))
+                cnx.commit()
+                st.success("Blood request submitted successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error submitting request: {str(e)}")
 
 def appointments():
     st.subheader("Appointments")
@@ -76,21 +200,119 @@ def appointments():
     st.table(appointments)
 
 def inventory():
-    st.subheader("Inventory")
-    query = """
-    SELECT bt.bloodType as 'Blood Type',
-           bbi.quantityInStock as 'Units Available',
-           DATE_FORMAT(bbi.expirationDate, '%Y-%m-%d') as 'Expiration Date'
-    FROM BloodBankInventory bbi
-    JOIN BloodType bt ON bbi.bloodTypeId = bt.id
-    JOIN Hospital h ON bbi.hospitalId = h.id
+    st.subheader("Blood Bank Inventory")
+    
+    # First check if hospital is approved
+    check_query = """
+    SELECT h.bloodBankInventoryId, h.id
+    FROM Hospital h
     JOIN User u ON h.id = u.associatedHospitalId
     WHERE u.id = %s
     """
-    cursor.execute(query, (st.session_state.user['id'],))
-    inventory = pd.DataFrame(cursor.fetchall(), 
-                           columns=['Blood Type', 'Units Available', 'Expiration Date'])
-    st.table(inventory)
+    cursor.execute(check_query, (st.session_state.user['id'],))
+    hospital_status = cursor.fetchone()
+    
+    if not hospital_status or not hospital_status[0]:
+        st.warning("Your hospital is not approved yet. Inventory management will be available after approval.")
+        return
+        
+    hospital_id = hospital_status[1]
+    
+    # Show current inventory
+    query = """
+    SELECT 
+        bt.id as blood_type_id,
+        bt.bloodType as 'Blood Type',
+        bbi.quantityInStock as 'Units Available',
+        DATE_FORMAT(bbi.expirationDate, '%Y-%m-%d') as 'Expiration Date',
+        bbi.id as inventory_id
+    FROM BloodBankInventory bbi
+    JOIN BloodType bt ON bbi.bloodTypeId = bt.id
+    WHERE bbi.hospitalId = %s
+    """
+    cursor.execute(query, (hospital_id,))
+    inventory_data = cursor.fetchall()
+    
+    if inventory_data:
+        st.markdown("### Current Inventory")
+        inventory_df = pd.DataFrame(inventory_data, 
+                                  columns=['blood_type_id', 'Blood Type', 'Units Available', 
+                                         'Expiration Date', 'inventory_id'])
+        # Display only relevant columns
+        display_df = inventory_df[['Blood Type', 'Units Available', 'Expiration Date']]
+        st.table(display_df)
+    else:
+        st.info("No inventory records found.")
+    
+    # Add/Update inventory form
+    st.markdown("### Update Inventory")
+    with st.form("update_inventory_form"):
+        # Get blood types for dropdown
+        cursor.execute("SELECT id, bloodType FROM BloodType")
+        blood_types = {bt[1]: bt[0] for bt in cursor.fetchall()}
+        
+        selected_blood_type = st.selectbox("Blood Type", list(blood_types.keys()))
+        quantity = st.number_input("Quantity in Stock", min_value=0, max_value=1000)
+        expiration_date = st.date_input("Expiration Date")
+        
+        submitted = st.form_submit_button("Update Inventory")
+        
+        if submitted:
+            try:
+                # Check if inventory entry exists for this blood type
+                check_inventory_query = """
+                SELECT id FROM BloodBankInventory 
+                WHERE hospitalId = %s AND bloodTypeId = %s
+                """
+                cursor.execute(check_inventory_query, (hospital_id, blood_types[selected_blood_type]))
+                existing_inventory = cursor.fetchone()
+                
+                if existing_inventory:
+                    # Update existing inventory
+                    update_query = """
+                    UPDATE BloodBankInventory 
+                    SET quantityInStock = %s,
+                        expirationDate = %s,
+                        updatedAt = NOW()
+                    WHERE id = %s
+                    """
+                    cursor.execute(update_query, (quantity, expiration_date, existing_inventory[0]))
+                else:
+                    # Insert new inventory entry
+                    insert_query = """
+                    INSERT INTO BloodBankInventory (
+                        hospitalId,
+                        bloodTypeId,
+                        quantityInStock,
+                        expirationDate,
+                        createdAt,
+                        updatedAt
+                    ) VALUES (%s, %s, %s, %s, NOW(), NOW())
+                    """
+                    cursor.execute(insert_query, 
+                                 (hospital_id, blood_types[selected_blood_type], 
+                                  quantity, expiration_date))
+                
+                cnx.commit()
+                st.success("Inventory updated successfully!")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Error updating inventory: {str(e)}")
+    
+    # Add inventory history or low stock alerts
+    if inventory_data:
+        st.markdown("### Inventory Alerts")
+        low_stock_items = display_df[display_df['Units Available'] < 10]
+        if not low_stock_items.empty:
+            st.warning("Low Stock Alert!")
+            st.table(low_stock_items)
+        
+        expiring_soon = display_df[pd.to_datetime(display_df['Expiration Date']) < 
+                                 pd.Timestamp.now() + pd.Timedelta(days=30)]
+        if not expiring_soon.empty:
+            st.warning("Items Expiring Soon!")
+            st.table(expiring_soon)
 
 def dispatch():
     st.subheader("Dispatch")
