@@ -108,6 +108,10 @@ CREATE TABLE BloodDispatch (
     FOREIGN KEY (bloodTypeId) REFERENCES BloodType(id)
 );
 
+ALTER TABLE BloodRequest
+ADD COLUMN fulfilledBy INTEGER,
+ADD FOREIGN KEY (fulfilledBy) REFERENCES Donor(id);
+
 INSERT INTO Role (name, description) 
 VALUES 
   ('Admin', 'System administrator with full access to manage users, hospitals, and blood bank inventory'),
@@ -136,3 +140,4 @@ VALUES
   ('AB-'),
   ('O+'),
   ('O-');
+
