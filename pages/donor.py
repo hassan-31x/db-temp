@@ -93,6 +93,7 @@ def appointments():
     appointments_data = cursor.fetchall()
     
     if appointments_data:
+        appointments_data = [row if isinstance(row, tuple) else tuple(row) for row in appointments_data]
         appointments_df = pd.DataFrame(appointments_data, 
                                      columns=['Date', 'Time', 'Hospital', 'Location', 
                                             'Hospital Contact', 'Blood Type', 'Status', 'Timeline'])
@@ -207,7 +208,9 @@ def donation_history():
     ORDER BY br.createdAt DESC
     """
     cursor.execute(query, (donor_id,))
-    history = pd.DataFrame(cursor.fetchall(), 
+    data = cursor.fetchall()
+    data = [row if isinstance(row, tuple) else tuple(row) for row in data]
+    history = pd.DataFrame(data, 
                          columns=['Date', 'Hospital', 'Blood Type', 'Amount (units)', 'Urgency Level'])
     
     if history.empty:

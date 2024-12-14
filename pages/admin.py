@@ -53,6 +53,7 @@ def hospital_approval():
     """
     cursor.execute(query)
     data = cursor.fetchall()
+    data = [row if isinstance(row, tuple) else tuple(row) for row in data]
     hospitals = pd.DataFrame(data, columns=["ID", "Hospital Name", "Location", "InventoryID", "Status"])
     
     # Display hospitals with action buttons
@@ -82,7 +83,7 @@ def hospital_approval():
                         """
                         cursor.execute(inventory_query, (hospital['ID'],))
                         
-                        cursor.execute("SELECT SCOPE_IDENTITY()")
+                        cursor.execute("SELECT @@IDENTITY")
                         inventory_id = cursor.fetchone()[0]
                         
                         update_query = """

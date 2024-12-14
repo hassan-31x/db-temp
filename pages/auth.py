@@ -71,32 +71,32 @@ def register_page():
             st.error("Password must be at least 6 characters long")
         else:
             try:
-                # Start transaction
-                cursor.execute("BEGIN TRANSACTION")
-                
                 # Check if username exists
                 checkQuery = "SELECT username FROM [User] WHERE username = ?"
                 cursor.execute(checkQuery, (username,))
 
                 if cursor.fetchone():
                     st.error("Username already exists. Please choose a different username.")
-                    connection.rollback()
                 else:
                     # Insert into User table
                     userQuery = """
                     INSERT INTO [User] (username, password_hash, roleId, createdAt, updatedAt) 
                     VALUES (?, ?, ?, GETDATE(), GETDATE())"""
                     cursor.execute(userQuery, (username, password, roleId))
+                    connection.commit()
                     
                     # Get the newly created user's ID
-                    cursor.execute("SELECT SCOPE_IDENTITY()")
-                    user_id = cursor.fetchone()[0]
+                    cursor.execute("SELECT @@IDENTITY")
+                    result = cursor.fetchone()
+                    if result is None or result[0] is None:
+                        raise Exception("Failed to get new user ID")
+                    user_id = result[0]
                     
                     if role == 'donor':
                         # Get blood type ID
                         cursor.execute("SELECT id FROM BloodType WHERE bloodType = ?", (blood_type,))
                         blood_type_id = cursor.fetchone()[0]
-                        
+
                         # Insert into Donor table
                         donorQuery = """
                         INSERT INTO Donor (userId, name, bloodTypeId, contactInformation, 
@@ -104,6 +104,7 @@ def register_page():
                         VALUES (?, ?, ?, ?, ?, 1, GETDATE(), GETDATE())
                         """
                         cursor.execute(donorQuery, (user_id, name, blood_type_id, contact, medical_history))
+                        connection.commit()
                     
                     else:  # hospital
                         # Insert into Hospital table
@@ -112,20 +113,21 @@ def register_page():
                         VALUES (?, ?, ?, GETDATE(), GETDATE())
                         """
                         cursor.execute(hospitalQuery, (hospital_name, location, contact_info))
-                        
+                        connection.commit()
+
                         # Get the newly created hospital's ID
-                        cursor.execute("SELECT SCOPE_IDENTITY()")
-                        hospital_id = cursor.fetchone()[0]
+                        cursor.execute("SELECT @@IDENTITY")
+                        result = cursor.fetchone()
+                        if result is None or result[0] is None:
+                            raise Exception("Failed to get new hospital ID")
+                        hospital_id = result[0]
                         
                         # Update User table with associated hospital ID
                         cursor.execute("UPDATE [User] SET associatedHospitalId = ? WHERE id = ?", 
                                      (hospital_id, user_id))
+                        connection.commit()
                     
-                    # Commit transaction
-                    connection.commit()
                     st.success("Registration successful! Please log in.")
                     
             except Exception as e:
-                # If any error occurs, rollback the transaction
-                connection.rollback()
                 st.error(f"An error occurred during registration: {str(e)}")

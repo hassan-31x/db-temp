@@ -24,7 +24,7 @@ __all__ = ['cursor', 'connection']
 
 
 
-# select_query = "SELECT * FROM [User]"
+# select_query = "SELECT * FROM [Hospital]"
 # cursor.execute(select_query)
 # print("All Employees:")
 # for row in cursor.fetchall():

@@ -93,8 +93,10 @@ def profile():
             """
             cursor.execute(activity_query, (hospital_info[0],))
             activity_data = cursor.fetchall()
+            print(activity_data)
             
             if activity_data:
+                activity_data = [row if isinstance(row, tuple) else tuple(row) for row in activity_data]
                 activity_df = pd.DataFrame(activity_data, columns=['Date', 'Appointments'])
                 st.table(activity_df)
             else:
@@ -133,7 +135,9 @@ def blood_requests():
     ORDER BY br.createdAt DESC
     """
     cursor.execute(query, (hospital_id,))
-    requests = pd.DataFrame(cursor.fetchall(), 
+    data = cursor.fetchall()
+    data = [row if isinstance(row, tuple) else tuple(row) for row in data]
+    requests = pd.DataFrame(data, 
                           columns=['Blood Type', 'Requested Units', 'Fulfilled Units', 
                                  'Urgency', 'Status', 'Request Date'])
     
@@ -196,7 +200,9 @@ def appointments():
     ORDER BY a.appointmentDate, a.appointmentTime
     """
     cursor.execute(query, (st.session_state.user['id'],))
-    appointments = pd.DataFrame(cursor.fetchall(), 
+    data = cursor.fetchall()
+    data = [row if isinstance(row, tuple) else tuple(row) for row in data]
+    appointments = pd.DataFrame(data, 
                               columns=['Donor Name', 'Blood Type', 'Date', 'Time', 'Status'])
     st.table(appointments)
 
@@ -236,6 +242,7 @@ def inventory():
     
     if inventory_data:
         st.markdown("### Current Inventory")
+        inventory_data = [row if isinstance(row, tuple) else tuple(row) for row in inventory_data]
         inventory_df = pd.DataFrame(inventory_data, 
                                   columns=['blood_type_id', 'Blood Type', 'Units Available', 
                                          'Expiration Date', 'inventory_id'])
