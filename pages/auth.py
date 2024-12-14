@@ -1,5 +1,5 @@
 import streamlit as st
-from a import cursor, cnx
+from db import cursor, connection
 
 def auth_page():
     st.title("Blood Donation Management System")
@@ -16,7 +16,7 @@ def login_page():
     password = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        query = "SELECT * FROM User WHERE username = %s AND password_hash = %s"
+        query = "SELECT * FROM [User] WHERE username = ? AND password_hash = ?"
         cursor.execute(query, (username, password))
         user = cursor.fetchone()
 
@@ -72,34 +72,36 @@ def register_page():
         else:
             try:
                 # Start transaction
-                cursor.execute("START TRANSACTION")
+                cursor.execute("BEGIN TRANSACTION")
                 
                 # Check if username exists
-                checkQuery = "SELECT username FROM User WHERE username = %s"
+                checkQuery = "SELECT username FROM [User] WHERE username = ?"
                 cursor.execute(checkQuery, (username,))
 
                 if cursor.fetchone():
                     st.error("Username already exists. Please choose a different username.")
-                    cursor.execute("ROLLBACK")
+                    connection.rollback()
                 else:
                     # Insert into User table
-                    userQuery = "INSERT INTO User (username, password_hash, roleId, createdAt, updatedAt) VALUES (%s, %s, %s, NOW(), NOW())"
+                    userQuery = """
+                    INSERT INTO [User] (username, password_hash, roleId, createdAt, updatedAt) 
+                    VALUES (?, ?, ?, GETDATE(), GETDATE())"""
                     cursor.execute(userQuery, (username, password, roleId))
-
                     
                     # Get the newly created user's ID
-                    user_id = cursor.lastrowid
+                    cursor.execute("SELECT SCOPE_IDENTITY()")
+                    user_id = cursor.fetchone()[0]
                     
                     if role == 'donor':
                         # Get blood type ID
-                        cursor.execute("SELECT id FROM BloodType WHERE bloodType = %s", (blood_type,))
+                        cursor.execute("SELECT id FROM BloodType WHERE bloodType = ?", (blood_type,))
                         blood_type_id = cursor.fetchone()[0]
                         
                         # Insert into Donor table
                         donorQuery = """
                         INSERT INTO Donor (userId, name, bloodTypeId, contactInformation, 
                                          medicalHistory, eligibilityStatus, createdAt, updatedAt)
-                        VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                        VALUES (?, ?, ?, ?, ?, 1, GETDATE(), GETDATE())
                         """
                         cursor.execute(donorQuery, (user_id, name, blood_type_id, contact, medical_history))
                     
@@ -107,22 +109,23 @@ def register_page():
                         # Insert into Hospital table
                         hospitalQuery = """
                         INSERT INTO Hospital (name, location, contactInformation, createdAt, updatedAt)
-                        VALUES (%s, %s, %s, NOW(), NOW())
+                        VALUES (?, ?, ?, GETDATE(), GETDATE())
                         """
                         cursor.execute(hospitalQuery, (hospital_name, location, contact_info))
                         
                         # Get the newly created hospital's ID
-                        hospital_id = cursor.lastrowid
+                        cursor.execute("SELECT SCOPE_IDENTITY()")
+                        hospital_id = cursor.fetchone()[0]
                         
                         # Update User table with associated hospital ID
-                        cursor.execute("UPDATE User SET associatedHospitalId = %s WHERE id = %s", 
+                        cursor.execute("UPDATE [User] SET associatedHospitalId = ? WHERE id = ?", 
                                      (hospital_id, user_id))
                     
                     # Commit transaction
-                    cnx.commit()
+                    connection.commit()
                     st.success("Registration successful! Please log in.")
                     
             except Exception as e:
                 # If any error occurs, rollback the transaction
-                cursor.execute("ROLLBACK")
+                connection.rollback()
                 st.error(f"An error occurred during registration: {str(e)}")

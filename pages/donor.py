@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from pages import blood_drive
-from a import cursor, cnx
+from db import cursor, connection
 
 def donor_page():
     st.title("Donor Dashboard")
@@ -23,24 +23,22 @@ def donor_page():
 def profile():
     st.subheader("Donor Profile")
     
-    # First, fetch current donor information
+    # Modified query for SQL Server
     query = """
     SELECT d.name, bt.bloodType, d.lastDonationDate, d.contactInformation, d.medicalHistory, d.eligibilityStatus
     FROM Donor d
     JOIN BloodType bt ON d.bloodTypeId = bt.id
-    JOIN User u ON d.userId = u.id
-    WHERE u.id = %s
+    JOIN [User] u ON d.userId = u.id
+    WHERE u.id = ?
     """
     cursor.execute(query, (st.session_state.user['id'],))
     donor_info = cursor.fetchone()
     
     if donor_info:
-        # Create two columns
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("### Personal Information")
-            # Edit name form
             with st.form("edit_personal_info_form"):
                 new_name = st.text_input("Full Name", value=donor_info[0])
                 new_contact = st.text_area("Contact Information", value=donor_info[3])
@@ -49,55 +47,44 @@ def profile():
                 if submit_button:
                     try:
                         update_query = """
-                        UPDATE Donor d
-                        JOIN User u ON d.userId = u.id
-                        SET d.name = %s, 
-                            d.contactInformation = %s,
-                            d.updatedAt = NOW()
-                        WHERE u.id = %s
+                        UPDATE d
+                        SET d.name = ?, 
+                            d.contactInformation = ?,
+                            d.updatedAt = GETDATE()
+                        FROM Donor d
+                        JOIN [User] u ON d.userId = u.id
+                        WHERE u.id = ?
                         """
                         cursor.execute(update_query, (new_name, new_contact, st.session_state.user['id']))
-                        cnx.commit()
+                        connection.commit()
                         st.success("Personal information updated successfully!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error updating information: {str(e)}")
-            
-            
-        
-        with col2:
-            st.markdown("### Other Information")
-            st.write(f"**Medical History:**")
-            st.text(donor_info[4])
-
-            st.write(f"**Blood Type:** {donor_info[1]}")
-            st.write(f"**Last Donation:** {donor_info[2] if donor_info[2] else 'No donations yet'}")
-            st.write(f"**Eligibility Status:** {'Eligible' if donor_info[5] else 'Not Eligible'}")
-            
 
 def appointments():
     st.subheader("Appointments")
     
-    # Get all appointments with detailed information
+    # Modified query for SQL Server
     query = """
     SELECT 
-        DATE_FORMAT(a.appointmentDate, '%Y-%m-%d') as Date,
-        TIME_FORMAT(a.appointmentTime, '%H:%i') as Time,
+        FORMAT(a.appointmentDate, 'yyyy-MM-dd') as Date,
+        FORMAT(a.appointmentTime, 'HH:mm') as Time,
         h.name as Hospital,
         h.location as Location,
         h.contactInformation as 'Hospital Contact',
         bt.bloodType as 'Blood Type',
         a.status as Status,
         CASE 
-            WHEN a.appointmentDate < CURDATE() THEN 'Past'
-            WHEN a.appointmentDate = CURDATE() THEN 'Today'
+            WHEN a.appointmentDate < CAST(GETDATE() AS DATE) THEN 'Past'
+            WHEN a.appointmentDate = CAST(GETDATE() AS DATE) THEN 'Today'
             ELSE 'Upcoming'
         END as Timeline
     FROM Appointment a
     JOIN Hospital h ON a.hospitalId = h.id
     JOIN Donor d ON a.donorId = d.id
     JOIN BloodType bt ON d.bloodTypeId = bt.id
-    WHERE d.userId = %s
+    WHERE d.userId = ?
     ORDER BY 
         a.appointmentDate DESC,
         a.appointmentTime DESC
@@ -188,12 +175,12 @@ def appointments():
 def donation_history():
     st.subheader("Donation History")
     
-    # First get the donor ID for the current user
+    # Modified query for SQL Server
     donor_query = """
     SELECT d.id 
     FROM Donor d
-    JOIN User u ON d.userId = u.id
-    WHERE u.id = %s
+    JOIN [User] u ON d.userId = u.id
+    WHERE u.id = ?
     """
     cursor.execute(donor_query, (st.session_state.user['id'],))
     donor_result = cursor.fetchone()
@@ -204,10 +191,10 @@ def donation_history():
         
     donor_id = donor_result[0]
     
-    # Get donation history from BloodRequest table
+    # Modified query for SQL Server
     query = """
     SELECT 
-        DATE_FORMAT(br.createdAt, '%Y-%m-%d') as Date,
+        FORMAT(br.createdAt, 'yyyy-MM-dd') as Date,
         h.name as Hospital,
         bt.bloodType as 'Blood Type',
         br.requestedQuantity as 'Amount (units)',
@@ -216,7 +203,7 @@ def donation_history():
     JOIN Hospital h ON br.hospitalId = h.id
     JOIN BloodType bt ON br.bloodTypeId = bt.id
     WHERE br.requestStatus = 'Fulfilled' 
-    AND br.fulfilledBy = %s
+    AND br.fulfilledBy = ?
     ORDER BY br.createdAt DESC
     """
     cursor.execute(query, (donor_id,))
@@ -231,13 +218,13 @@ def donation_history():
 def blood_requests():
     st.subheader("Blood Requests")
     
-    # Get donor's blood type
+    # Modified query for SQL Server
     donor_query = """
     SELECT bt.bloodType, bt.id, d.id as donor_id
     FROM Donor d
     JOIN BloodType bt ON d.bloodTypeId = bt.id
-    JOIN User u ON d.userId = u.id
-    WHERE u.id = %s
+    JOIN [User] u ON d.userId = u.id
+    WHERE u.id = ?
     """
     cursor.execute(donor_query, (st.session_state.user['id'],))
     donor_blood_info = cursor.fetchone()
@@ -245,8 +232,8 @@ def blood_requests():
     if not donor_blood_info:
         st.error("Donor information not found.")
         return
-        
-    # Get pending blood requests matching donor's blood type
+    
+    # Modified query for SQL Server
     query = """
     SELECT 
         br.id,
@@ -260,7 +247,7 @@ def blood_requests():
     JOIN Hospital h ON br.hospitalId = h.id
     JOIN BloodType bt ON br.bloodTypeId = bt.id
     WHERE br.requestStatus = 'Pending'
-    AND br.bloodTypeId = %s
+    AND br.bloodTypeId = ?
     AND br.requestedQuantity > br.fulfilledQuantity
     ORDER BY 
         CASE br.urgencyLevel
@@ -315,14 +302,14 @@ def blood_requests():
                 if submit_response:
                     try:
                         # Start transaction
-                        cursor.execute("START TRANSACTION")
+                        cursor.execute("BEGIN TRANSACTION")
                         
                         # Create appointment
                         appointment_query = """
                         INSERT INTO Appointment (
                             donorId, hospitalId, appointmentDate, appointmentTime,
                             status, createdAt, updatedAt
-                        ) VALUES (%s, %s, %s, %s, 'Scheduled', NOW(), NOW())
+                        ) VALUES (?, ?, ?, ?, 'Scheduled', GETDATE(), GETDATE())
                         """
                         cursor.execute(appointment_query, (
                             donor_blood_info[2],  # donor_id
@@ -336,25 +323,25 @@ def blood_requests():
                         UPDATE BloodRequest 
                         SET fulfilledQuantity = requestedQuantity,
                             requestStatus = 'Fulfilled',
-                            updatedAt = NOW()
-                        WHERE id = %s
+                            updatedAt = GETDATE()
+                        WHERE id = ?
                         """
                         cursor.execute(update_request_query, (request[0],))
                         
                         # Update donor's last donation date
                         update_donor_query = """
                         UPDATE Donor 
-                        SET lastDonationDate = %s,
-                            updatedAt = NOW()
-                        WHERE id = %s
+                        SET lastDonationDate = ?,
+                            updatedAt = GETDATE()
+                        WHERE id = ?
                         """
                         cursor.execute(update_donor_query, (selected_date, donor_blood_info[2]))
                         
                         # Commit transaction
-                        cnx.commit()
+                        connection.commit()
                         st.success("Appointment scheduled successfully!")
                         st.rerun()
                         
                     except Exception as e:
-                        cursor.execute("ROLLBACK")
+                        connection.rollback()
                         st.error(f"Error scheduling appointment: {str(e)}")

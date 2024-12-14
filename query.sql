@@ -2,62 +2,62 @@ CREATE DATABASE BloodDonation;
 USE BloodDonation;
 
 CREATE TABLE Role (
-    id INTEGER PRIMARY KEY AUTO_INCREMENT,
-    name VARCHAR(50),
-    description VARCHAR(255)
+    id INT PRIMARY KEY IDENTITY(1,1),
+    name NVARCHAR(50),
+    description NVARCHAR(255)
 );
 
 CREATE TABLE Hospital (
-    id INTEGER PRIMARY KEY AUTO_INCREMENT,
-    name VARCHAR(255),
-    location TEXT,
-    contactInformation TEXT,
-    bloodBankInventoryId INTEGER,
-    createdAt TIMESTAMP,
-    updatedAt TIMESTAMP
+    id INT PRIMARY KEY IDENTITY(1,1),
+    name NVARCHAR(255),
+    location NVARCHAR(MAX),
+    contactInformation NVARCHAR(MAX),
+    bloodBankInventoryId INT,
+    createdAt DATETIME,
+    updatedAt DATETIME
 );
 
-CREATE TABLE User (
-    id INTEGER PRIMARY KEY AUTO_INCREMENT,
-    username VARCHAR(255),
-    password_hash VARCHAR(255),
-    email VARCHAR(255),
-    roleId INTEGER,
-    associatedHospitalId INTEGER,
-    createdAt TIMESTAMP,
-    updatedAt TIMESTAMP,
+CREATE TABLE [User] (
+    id INT PRIMARY KEY IDENTITY(1,1),
+    username NVARCHAR(255),
+    password_hash NVARCHAR(255),
+    email NVARCHAR(255),
+    roleId INT,
+    associatedHospitalId INT,
+    createdAt DATETIME,
+    updatedAt DATETIME,
     FOREIGN KEY (roleId) REFERENCES Role(id),
     FOREIGN KEY (associatedHospitalId) REFERENCES Hospital(id)
 );
 
 CREATE TABLE BloodType (
-    id INTEGER PRIMARY KEY AUTO_INCREMENT,
-    bloodType VARCHAR(10)
+    id INT PRIMARY KEY IDENTITY(1,1),
+    bloodType NVARCHAR(10)
 );
 
 CREATE TABLE Donor (
-    id INTEGER PRIMARY KEY AUTO_INCREMENT,
-    userId INTEGER,
-    name VARCHAR(255),
-    bloodTypeId INTEGER,
-    contactInformation TEXT,
-    medicalHistory TEXT,
-    eligibilityStatus BOOLEAN,
+    id INT PRIMARY KEY IDENTITY(1,1),
+    userId INT,
+    name NVARCHAR(255),
+    bloodTypeId INT,
+    contactInformation NVARCHAR(MAX),
+    medicalHistory NVARCHAR(MAX),
+    eligibilityStatus BIT,
     lastDonationDate DATE,
-    createdAt TIMESTAMP,
-    updatedAt TIMESTAMP,
-    FOREIGN KEY (userId) REFERENCES User(id),
+    createdAt DATETIME,
+    updatedAt DATETIME,
+    FOREIGN KEY (userId) REFERENCES [User](id),
     FOREIGN KEY (bloodTypeId) REFERENCES BloodType(id)
 );
 
 CREATE TABLE BloodBankInventory (
-    id INTEGER PRIMARY KEY AUTO_INCREMENT,
-    hospitalId INTEGER,
-    bloodTypeId INTEGER,
-    quantityInStock INTEGER,
+    id INT PRIMARY KEY IDENTITY(1,1),
+    hospitalId INT,
+    bloodTypeId INT,
+    quantityInStock INT,
     expirationDate DATE,
-    createdAt TIMESTAMP,
-    updatedAt TIMESTAMP,
+    createdAt DATETIME,
+    updatedAt DATETIME,
     FOREIGN KEY (hospitalId) REFERENCES Hospital(id),
     FOREIGN KEY (bloodTypeId) REFERENCES BloodType(id)
 );
@@ -66,51 +66,56 @@ ALTER TABLE Hospital
 ADD FOREIGN KEY (bloodBankInventoryId) REFERENCES BloodBankInventory(id);
 
 CREATE TABLE Appointment (
-    id INTEGER PRIMARY KEY AUTO_INCREMENT,
-    donorId INTEGER,
-    hospitalId INTEGER,
+    id INT PRIMARY KEY IDENTITY(1,1),
+    donorId INT,
+    hospitalId INT,
     appointmentDate DATE,
     appointmentTime TIME,
-    status VARCHAR(50),
-    createdAt TIMESTAMP,
-    updatedAt TIMESTAMP,
+    status NVARCHAR(50),
+    createdAt DATETIME,
+    updatedAt DATETIME,
     FOREIGN KEY (donorId) REFERENCES Donor(id),
     FOREIGN KEY (hospitalId) REFERENCES Hospital(id)
 );
 
 CREATE TABLE BloodRequest (
-    id INTEGER PRIMARY KEY AUTO_INCREMENT,
-    hospitalId INTEGER,
-    bloodTypeId INTEGER,
-    urgencyLevel VARCHAR(50),
-    requestStatus VARCHAR(50),
-    requestedQuantity INTEGER,
-    fulfilledQuantity INTEGER,
-    createdAt TIMESTAMP,
-    updatedAt TIMESTAMP,
+    id INT PRIMARY KEY IDENTITY(1,1),
+    hospitalId INT,
+    bloodTypeId INT,
+    urgencyLevel NVARCHAR(50),
+    requestStatus NVARCHAR(50),
+    requestedQuantity INT,
+    fulfilledQuantity INT,
+    createdAt DATETIME,
+    updatedAt DATETIME,
     FOREIGN KEY (hospitalId) REFERENCES Hospital(id),
     FOREIGN KEY (bloodTypeId) REFERENCES BloodType(id)
 );
 
 CREATE TABLE BloodDispatch (
-    id INTEGER PRIMARY KEY AUTO_INCREMENT,
-    requestId INTEGER,
-    bloodTypeId INTEGER,
-    quantityDispatched INTEGER,
-    dispatchDate TIMESTAMP,
-    deliveryStatus VARCHAR(50),
-    vehicleInfo TEXT,
-    driverName VARCHAR(255),
-    estimatedArrival TIMESTAMP,
-    createdAt TIMESTAMP,
-    updatedAt TIMESTAMP,
+    id INT PRIMARY KEY IDENTITY(1,1),
+    requestId INT,
+    bloodTypeId INT,
+    quantityDispatched INT,
+    dispatchDate DATETIME,
+    deliveryStatus NVARCHAR(50),
+    vehicleInfo NVARCHAR(MAX),
+    driverName NVARCHAR(255),
+    estimatedArrival DATETIME,
+    createdAt DATETIME,
+    updatedAt DATETIME,
     FOREIGN KEY (requestId) REFERENCES BloodRequest(id),
     FOREIGN KEY (bloodTypeId) REFERENCES BloodType(id)
 );
 
+
 ALTER TABLE BloodRequest
-ADD COLUMN fulfilledBy INTEGER,
-ADD FOREIGN KEY (fulfilledBy) REFERENCES Donor(id);
+ADD fulfilledBy INT;
+
+ALTER TABLE BloodRequest
+ADD CONSTRAINT FK_BloodRequest_fulfilledBy FOREIGN KEY (fulfilledBy) REFERENCES Donor(id);
+
+
 
 INSERT INTO Role (name, description) 
 VALUES 
@@ -118,17 +123,17 @@ VALUES
   ('Donor', 'Blood donors who can schedule appointments and view donation history'),
   ('Hospital', 'Healthcare facilities that can request blood and manage their inventory');
 
-INSERT INTO User (username, password_hash, email, roleId, associatedHospitalId, createdAt, updatedAt) 
-VALUES 
-  (
-    'admin', 
-    SHA2('admin', 256),  -- Encrypting the password for better security using SHA-256
-    'admin@example.com', 
-    (SELECT id FROM Role WHERE name = 'Admin' LIMIT 1), 
+
+INSERT INTO [User] (username, password_hash, email, roleId, associatedHospitalId, createdAt, updatedAt)
+VALUES (
+    'admin',
+    'admin',  -- Encrypting the password for better security using SHA-256
+    'admin@example.com',
+    (SELECT TOP (1) id FROM Role WHERE name = 'Admin'),
     NULL,  -- No associated hospital for the Admin role
-    CURRENT_TIMESTAMP, 
+    CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
-  );
+);
 
 INSERT INTO BloodType (bloodType) 
 VALUES 
@@ -140,4 +145,3 @@ VALUES
   ('AB-'),
   ('O+'),
   ('O-');
-

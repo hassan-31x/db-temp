@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from a import cursor, cnx
+from db import cursor, connection
 
 def blood_drive_page():
     st.title("Blood Drive Management")
@@ -26,10 +26,10 @@ def admin_blood_drive_page():
     if submitted:
         query = """
         INSERT INTO BloodDrive (name, startDate, endDate, location, createdAt, updatedAt)
-        VALUES (%s, %s, %s, %s, NOW(), NOW())
+        VALUES (?, ?, ?, ?, GETDATE(), GETDATE())
         """
         cursor.execute(query, (drive_name, start_date, end_date, location))
-        cnx.commit()
+        connection.commit()
         st.success(f"Blood drive '{drive_name}' added successfully.")
     
     query = """
@@ -65,10 +65,10 @@ def donor_blood_drive_page():
         INSERT INTO DriveRegistration (driveId, donorId, status, createdAt, updatedAt)
         SELECT bd.id, d.id, 'Registered', NOW(), NOW()
         FROM BloodDrive bd, Donor d
-        WHERE bd.name = %s AND d.userId = %s
+        WHERE bd.name = ? AND d.userId = ?
         """
         cursor.execute(query, (selected_drive, st.session_state.user['id']))
-        cnx.commit()
+        connection.commit()
         st.success(f"You have successfully registered for the '{selected_drive}' blood drive.")
 
 def hospital_blood_drive_page():

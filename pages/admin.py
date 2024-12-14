@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from pages import blood_drive
-from a import cursor, cnx
+from db import cursor, connection
 
 def admin_page():
     st.title("Admin Dashboard")
@@ -25,18 +25,20 @@ def user_management():
     query = """
         SELECT u.username, r.name as Role, 
         CASE WHEN u.associatedHospitalId IS NULL THEN 'Active' ELSE 'Inactive' END as Status
-        FROM User u
+        FROM [User] u
         JOIN Role r ON u.roleId = r.id
     """
     cursor.execute(query)
     data = cursor.fetchall()
-    users = pd.DataFrame(data, columns=["Username", "Role", "Status"])
-    st.table(users)
+    data = [row if isinstance(row, tuple) else tuple(row) for row in data]
+    users_df = pd.DataFrame(data, columns=["Username", "Role", "Status"])
+    
+    st.table(users_df)
 
 def hospital_approval():
     st.subheader("Hospital Approval")
     
-    # Get all hospitals with their approval status
+    # Modified query for SQL Server
     query = """
         SELECT 
             h.id,
@@ -64,44 +66,39 @@ def hospital_approval():
             if hospital['Status'] == 'Pending':
                 if st.button(f"Approve {hospital['Hospital Name']}", key=f"approve_{hospital['ID']}"):
                     try:
-                        # Start transaction
-                        cursor.execute("START TRANSACTION")
+                        cursor.execute("BEGIN TRANSACTION")
                         
-                        # First create a default inventory entry for the hospital
                         inventory_query = """
                         INSERT INTO BloodBankInventory 
                         (hospitalId, bloodTypeId, quantityInStock, expirationDate, createdAt, updatedAt)
                         SELECT 
-                            %s, 
+                            ?, 
                             bt.id, 
                             0, 
-                            DATE(DATE_ADD(CURDATE(), INTERVAL 1 YEAR)), 
-                            NOW(), 
-                            NOW()
+                            DATEADD(year, 1, CAST(GETDATE() AS DATE)), 
+                            GETDATE(), 
+                            GETDATE()
                         FROM BloodType bt
                         """
                         cursor.execute(inventory_query, (hospital['ID'],))
                         
-                        # Get the ID of the first inventory entry
-                        cursor.execute("SELECT LAST_INSERT_ID()")
+                        cursor.execute("SELECT SCOPE_IDENTITY()")
                         inventory_id = cursor.fetchone()[0]
                         
-                        # Update hospital with the inventory ID
                         update_query = """
                         UPDATE Hospital 
-                        SET bloodBankInventoryId = %s,
-                            updatedAt = NOW()
-                        WHERE id = %s
+                        SET bloodBankInventoryId = ?,
+                            updatedAt = GETDATE()
+                        WHERE id = ?
                         """
                         cursor.execute(update_query, (inventory_id, hospital['ID']))
                         
-                        # Commit transaction
-                        cnx.commit()
+                        connection.commit()
                         st.success(f"Successfully approved {hospital['Hospital Name']}")
                         st.rerun()
                         
                     except Exception as e:
-                        cursor.execute("ROLLBACK")
+                        connection.rollback()
                         st.error(f"Error approving hospital: {str(e)}")
                         
             else:  # Hospital is approved
@@ -109,32 +106,28 @@ def hospital_approval():
                            key=f"revoke_{hospital['ID']}",
                            type="secondary"):
                     try:
-                        # Start transaction
-                        cursor.execute("START TRANSACTION")
+                        cursor.execute("BEGIN TRANSACTION")
                         
-                        # First delete all inventory records
                         delete_inventory_query = """
                         DELETE FROM BloodBankInventory 
-                        WHERE hospitalId = %s
+                        WHERE hospitalId = ?
                         """
                         cursor.execute(delete_inventory_query, (hospital['ID'],))
                         
-                        # Then update hospital to remove inventory ID
                         update_query = """
                         UPDATE Hospital 
                         SET bloodBankInventoryId = NULL,
-                            updatedAt = NOW()
-                        WHERE id = %s
+                            updatedAt = GETDATE()
+                        WHERE id = ?
                         """
                         cursor.execute(update_query, (hospital['ID'],))
                         
-                        # Commit transaction
-                        cnx.commit()
+                        connection.commit()
                         st.success(f"Successfully revoked approval for {hospital['Hospital Name']}")
                         st.rerun()
                         
                     except Exception as e:
-                        cursor.execute("ROLLBACK")
+                        connection.rollback()
                         st.error(f"Error revoking approval: {str(e)}")
     
     # Display summary statistics
@@ -173,13 +166,13 @@ def reports():
     if selected_report == "Donation Statistics":
         query = """
         SELECT 
-            DATE_FORMAT(createdAt, '%Y-%m') as Month,
+            FORMAT(createdAt, 'yyyy-MM') as Month,
             COUNT(DISTINCT donorId) as Donors
         FROM Appointment
         WHERE status = 'Completed'
-        GROUP BY DATE_FORMAT(createdAt, '%Y-%m')
+        GROUP BY FORMAT(createdAt, 'yyyy-MM')
         ORDER BY Month DESC
-        LIMIT 3
+        OFFSET 0 ROWS FETCH NEXT 3 ROWS ONLY
         """
         cursor.execute(query)
         data = cursor.fetchall()
@@ -190,12 +183,12 @@ def reports():
     elif selected_report == "Hospital Requests":
         query = """
         SELECT 
-            DATE_FORMAT(createdAt, '%Y-%m') as Month,
+            FORMAT(createdAt, 'yyyy-MM') as Month,
             COUNT(*) as Requests
         FROM BloodRequest
-        GROUP BY DATE_FORMAT(createdAt, '%Y-%m')
+        GROUP BY FORMAT(createdAt, 'yyyy-MM')
         ORDER BY Month DESC
-        LIMIT 5
+        OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY
         """
         cursor.execute(query)
         data = cursor.fetchall()

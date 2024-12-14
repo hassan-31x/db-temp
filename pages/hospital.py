@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from pages import blood_drive
-from a import cursor, cnx
+from db import cursor, connection
 
 def hospital_page():
     st.title("Hospital Dashboard")
@@ -29,10 +29,10 @@ def profile():
     # Fetch current hospital information
     query = """
     SELECT h.id, h.name, h.location, h.contactInformation, h.bloodBankInventoryId,
-           DATE_FORMAT(h.createdAt, '%Y-%m-%d') as joinDate
+           FORMAT(h.createdAt, 'yyyy-MM-dd') as joinDate
     FROM Hospital h
-    JOIN User u ON h.id = u.associatedHospitalId
-    WHERE u.id = %s
+    JOIN [User] u ON h.id = u.associatedHospitalId
+    WHERE u.id = ?
     """
     cursor.execute(query, (st.session_state.user['id'],))
     hospital_info = cursor.fetchone()
@@ -51,16 +51,17 @@ def profile():
                 if submit_button:
                     try:
                         update_query = """
-                        UPDATE Hospital h
-                        JOIN User u ON h.id = u.associatedHospitalId
-                        SET h.name = %s, 
-                            h.location = %s,
-                            h.contactInformation = %s,
-                            h.updatedAt = NOW()
-                        WHERE u.id = %s
+                        UPDATE h
+                        SET h.name = ?, 
+                            h.location = ?,
+                            h.contactInformation = ?,
+                            h.updatedAt = GETDATE()
+                        FROM Hospital h
+                        JOIN [User] u ON h.id = u.associatedHospitalId
+                        WHERE u.id = ?
                         """
                         cursor.execute(update_query, (new_name, new_location, new_contact, st.session_state.user['id']))
-                        cnx.commit()
+                        connection.commit()
                         st.success("Hospital information updated successfully!")
                         st.rerun()
                     except Exception as e:
@@ -82,10 +83,10 @@ def profile():
             st.markdown("#### Recent Activity")
             activity_query = """
             SELECT 
-                DATE_FORMAT(appointmentDate, '%Y-%m-%d') as Date,
+                FORMAT(appointmentDate, 'yyyy-MM-dd') as Date,
                 COUNT(*) as 'Appointments'
             FROM Appointment
-            WHERE hospitalId = %s
+            WHERE hospitalId = ?
             GROUP BY appointmentDate
             ORDER BY appointmentDate DESC
             LIMIT 5
@@ -106,8 +107,8 @@ def blood_requests():
     check_query = """
     SELECT h.bloodBankInventoryId, h.id
     FROM Hospital h
-    JOIN User u ON h.id = u.associatedHospitalId
-    WHERE u.id = %s
+    JOIN [User] u ON h.id = u.associatedHospitalId
+    WHERE u.id = ?
     """
     cursor.execute(check_query, (st.session_state.user['id'],))
     hospital_status = cursor.fetchone()
@@ -125,10 +126,10 @@ def blood_requests():
         br.fulfilledQuantity as 'Fulfilled Units',
         br.urgencyLevel as 'Urgency',
         br.requestStatus as 'Status',
-        DATE_FORMAT(br.createdAt, '%Y-%m-%d') as 'Request Date'
+        FORMAT(br.createdAt, 'yyyy-MM-dd') as 'Request Date'
     FROM BloodRequest br
     JOIN BloodType bt ON br.bloodTypeId = bt.id
-    WHERE br.hospitalId = %s
+    WHERE br.hospitalId = ?
     ORDER BY br.createdAt DESC
     """
     cursor.execute(query, (hospital_id,))
@@ -167,12 +168,12 @@ def blood_requests():
                     fulfilledQuantity,
                     createdAt,
                     updatedAt
-                ) VALUES (%s, %s, %s, 'Pending', %s, 0, NOW(), NOW())
+                ) VALUES (?, ?, ?, 'Pending', ?, 0, GETDATE(), GETDATE())
                 """
                 cursor.execute(insert_query, 
                              (hospital_id, blood_types[selected_blood_type], 
                               urgency, quantity))
-                cnx.commit()
+                connection.commit()
                 st.success("Blood request submitted successfully!")
                 st.rerun()
             except Exception as e:
@@ -183,15 +184,15 @@ def appointments():
     query = """
     SELECT d.name as 'Donor Name',
            bt.bloodType as 'Blood Type',
-           DATE_FORMAT(a.appointmentDate, '%Y-%m-%d') as Date,
-           TIME_FORMAT(a.appointmentTime, '%H:%i') as Time,
+           FORMAT(a.appointmentDate, 'yyyy-MM-dd') as Date,
+           FORMAT(a.appointmentTime, 'HH:mm') as Time,
            a.status as Status
     FROM Appointment a
     JOIN Donor d ON a.donorId = d.id
     JOIN BloodType bt ON d.bloodTypeId = bt.id
     JOIN Hospital h ON a.hospitalId = h.id
-    JOIN User u ON h.id = u.associatedHospitalId
-    WHERE u.id = %s
+    JOIN [User] u ON h.id = u.associatedHospitalId
+    WHERE u.id = ?
     ORDER BY a.appointmentDate, a.appointmentTime
     """
     cursor.execute(query, (st.session_state.user['id'],))
@@ -206,8 +207,8 @@ def inventory():
     check_query = """
     SELECT h.bloodBankInventoryId, h.id
     FROM Hospital h
-    JOIN User u ON h.id = u.associatedHospitalId
-    WHERE u.id = %s
+    JOIN [User] u ON h.id = u.associatedHospitalId
+    WHERE u.id = ?
     """
     cursor.execute(check_query, (st.session_state.user['id'],))
     hospital_status = cursor.fetchone()
@@ -224,11 +225,11 @@ def inventory():
         bt.id as blood_type_id,
         bt.bloodType as 'Blood Type',
         bbi.quantityInStock as 'Units Available',
-        DATE_FORMAT(bbi.expirationDate, '%Y-%m-%d') as 'Expiration Date',
+        FORMAT(bbi.expirationDate, 'yyyy-MM-dd') as 'Expiration Date',
         bbi.id as inventory_id
     FROM BloodBankInventory bbi
     JOIN BloodType bt ON bbi.bloodTypeId = bt.id
-    WHERE bbi.hospitalId = %s
+    WHERE bbi.hospitalId = ?
     """
     cursor.execute(query, (hospital_id,))
     inventory_data = cursor.fetchall()
@@ -262,7 +263,7 @@ def inventory():
                 # Check if inventory entry exists for this blood type
                 check_inventory_query = """
                 SELECT id FROM BloodBankInventory 
-                WHERE hospitalId = %s AND bloodTypeId = %s
+                WHERE hospitalId = ? AND bloodTypeId = ?
                 """
                 cursor.execute(check_inventory_query, (hospital_id, blood_types[selected_blood_type]))
                 existing_inventory = cursor.fetchone()
@@ -271,10 +272,10 @@ def inventory():
                     # Update existing inventory
                     update_query = """
                     UPDATE BloodBankInventory 
-                    SET quantityInStock = %s,
-                        expirationDate = %s,
-                        updatedAt = NOW()
-                    WHERE id = %s
+                    SET quantityInStock = ?,
+                        expirationDate = ?,
+                        updatedAt = GETDATE()
+                    WHERE id = ?
                     """
                     cursor.execute(update_query, (quantity, expiration_date, existing_inventory[0]))
                 else:
@@ -287,13 +288,13 @@ def inventory():
                         expirationDate,
                         createdAt,
                         updatedAt
-                    ) VALUES (%s, %s, %s, %s, NOW(), NOW())
+                    ) VALUES (?, ?, ?, ?, GETDATE(), GETDATE())
                     """
                     cursor.execute(insert_query, 
                                  (hospital_id, blood_types[selected_blood_type], 
                                   quantity, expiration_date))
                 
-                cnx.commit()
+                connection.commit()
                 st.success("Inventory updated successfully!")
                 st.rerun()
                 
