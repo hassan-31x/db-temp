@@ -62,6 +62,38 @@ def profile():
                     except Exception as e:
                         st.error(f"Error updating information: {str(e)}")
 
+        # Add delete account section at the bottom
+        st.markdown("---")
+        st.markdown("### Delete Account")
+        with st.expander("Delete My Account"):
+            st.warning("⚠️ Warning: This action cannot be undone. All your data will be permanently deleted.")
+            confirm_delete = st.text_input("Type 'DELETE' to confirm account deletion:")
+            
+            if st.button("Delete My Account", type="secondary") and confirm_delete == "DELETE":
+                try:
+                    # Delete appointments
+                    cursor.execute("""
+                        DELETE FROM Appointment 
+                        WHERE donorId IN (SELECT id FROM Donor WHERE userId = ?)
+                    """, (st.session_state.user['id'],))
+                    connection.commit()
+                    
+                    # Delete donor record
+                    cursor.execute("DELETE FROM Donor WHERE userId = ?", (st.session_state.user['id'],))
+                    connection.commit()
+                    
+                    # Delete user account
+                    cursor.execute("DELETE FROM [User] WHERE id = ?", (st.session_state.user['id'],))
+                    connection.commit()
+                    
+                    # Clear session state and redirect to login
+                    st.session_state.clear()
+                    st.success("Your account has been successfully deleted")
+                    st.rerun()  # This will redirect to login since session is cleared
+                    
+                except Exception as e:
+                    st.error(f"Error deleting account: {str(e)}")
+
 def appointments():
     st.subheader("Appointments")
     

@@ -29,7 +29,8 @@ def profile():
     # Fetch current hospital information
     query = """
     SELECT h.id, h.name, h.location, h.contactInformation, h.bloodBankInventoryId,
-           FORMAT(h.createdAt, 'yyyy-MM-dd') as joinDate
+           FORMAT(h.createdAt, 'yyyy-MM-dd') as joinDate,
+           u.status as userStatus
     FROM Hospital h
     JOIN [User] u ON h.id = u.associatedHospitalId
     WHERE u.id = ?
@@ -71,13 +72,18 @@ def profile():
             st.markdown("### Hospital Details")
             st.write("**Registration Date:**", hospital_info[5])
             
-            # Show blood bank inventory status
-            if hospital_info[4]:  # if bloodBankInventoryId exists
-                st.write("**Blood Bank Status:** Active")
+            # Show account and blood bank status
+            if hospital_info[6] == 'Active':
+                st.write("**Account Status:** 🟢 Active")
                 
+                if hospital_info[4]:  # if bloodBankInventoryId exists
+                    st.write("**Blood Bank Status:** 🟢 Active")
+                else:
+                    st.write("**Blood Bank Status:** 🟡 Pending Approval")
+                    st.info("Your blood bank registration is under review by the administration.")
             else:
-                st.write("**Blood Bank Status:** Pending Approval")
-                st.info("Your blood bank registration is under review by the administration.")
+                st.error("**Account Status:** Inactive - Please contact administration")
+                st.warning("Your hospital account is currently inactive. Some features may be restricted.")
             
             # Show recent activity
             st.markdown("#### Recent Activity")
@@ -105,9 +111,9 @@ def profile():
 def blood_requests():
     st.subheader("Blood Requests")
     
-    # First check if hospital is approved
+    # Check both hospital approval and account status
     check_query = """
-    SELECT h.bloodBankInventoryId, h.id
+    SELECT h.bloodBankInventoryId, h.id, u.status
     FROM Hospital h
     JOIN [User] u ON h.id = u.associatedHospitalId
     WHERE u.id = ?
@@ -115,8 +121,16 @@ def blood_requests():
     cursor.execute(check_query, (st.session_state.user['id'],))
     hospital_status = cursor.fetchone()
     
-    if not hospital_status or not hospital_status[0]:
-        st.warning("Your hospital is not approved yet. Blood request functionality will be available after approval.")
+    if not hospital_status:
+        st.error("Hospital information not found.")
+        return
+        
+    if hospital_status[2] != 'Active':
+        st.error("Your hospital account is currently inactive. Please contact administration.")
+        return
+        
+    if not hospital_status[0]:
+        st.warning("Your blood bank is not approved yet. Blood request functionality will be available after approval.")
         return
         
     # If approved, show existing requests
@@ -209,9 +223,9 @@ def appointments():
 def inventory():
     st.subheader("Blood Bank Inventory")
     
-    # First check if hospital is approved
+    # Check both hospital approval and account status
     check_query = """
-    SELECT h.bloodBankInventoryId, h.id
+    SELECT h.bloodBankInventoryId, h.id, u.status
     FROM Hospital h
     JOIN [User] u ON h.id = u.associatedHospitalId
     WHERE u.id = ?
@@ -219,7 +233,15 @@ def inventory():
     cursor.execute(check_query, (st.session_state.user['id'],))
     hospital_status = cursor.fetchone()
     
-    if not hospital_status or not hospital_status[0]:
+    if not hospital_status:
+        st.error("Hospital information not found.")
+        return
+        
+    if hospital_status[2] != 'Active':
+        st.error("Your hospital account is currently inactive. Please contact administration.")
+        return
+        
+    if not hospital_status[0]:
         st.warning("Your hospital is not approved yet. Inventory management will be available after approval.")
         return
         

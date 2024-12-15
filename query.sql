@@ -115,6 +115,11 @@ ADD fulfilledBy INT;
 ALTER TABLE BloodRequest
 ADD CONSTRAINT FK_BloodRequest_fulfilledBy FOREIGN KEY (fulfilledBy) REFERENCES Donor(id);
 
+ALTER TABLE [User]
+ADD status NVARCHAR(10) DEFAULT 'Active' NOT NULL;
+
+ALTER TABLE [User]
+ADD CONSTRAINT CHK_User_Status CHECK (status IN ('Active', 'Inactive'));
 
 
 INSERT INTO Role (name, description) 
