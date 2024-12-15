@@ -7,7 +7,7 @@ def hospital_page():
     st.title("Hospital Dashboard")
     
     # menu = ["Profile", "Blood Requests", "Appointments", "Inventory", "Dispatch", "Blood Drives"]
-    menu = ["Profile", "Blood Requests", "Inventory", "Dispatch"]
+    menu = ["Profile", "Blood Requests", "Appointments", "Inventory", "Dispatch"]
     choice = st.sidebar.selectbox("Menu", menu)
     
     if choice == "Profile":
@@ -85,21 +85,18 @@ def profile():
                 st.error("**Account Status:** Inactive - Please contact administration")
                 st.warning("Your hospital account is currently inactive. Some features may be restricted.")
             
-            # Show recent activity
             st.markdown("#### Recent Activity")
             activity_query = """
-            SELECT 
+            SELECT TOP 5
                 FORMAT(appointmentDate, 'yyyy-MM-dd') as Date,
                 COUNT(*) as 'Appointments'
             FROM Appointment
             WHERE hospitalId = ?
             GROUP BY appointmentDate
             ORDER BY appointmentDate DESC
-            LIMIT 5
             """
             cursor.execute(activity_query, (hospital_info[0],))
             activity_data = cursor.fetchall()
-            print(activity_data)
             
             if activity_data:
                 activity_data = [row if isinstance(row, tuple) else tuple(row) for row in activity_data]
@@ -199,26 +196,96 @@ def blood_requests():
 
 def appointments():
     st.subheader("Appointments")
-    query = """
-    SELECT d.name as 'Donor Name',
-           bt.bloodType as 'Blood Type',
-           FORMAT(a.appointmentDate, 'yyyy-MM-dd') as Date,
-           FORMAT(a.appointmentTime, 'HH:mm') as Time,
-           a.status as Status
+    
+    # Get hospital ID
+    cursor.execute("""
+        SELECT h.id 
+        FROM Hospital h
+        JOIN [User] u ON h.id = u.associatedHospitalId
+        WHERE u.id = ?
+    """, (st.session_state.user['id'],))
+    hospital_id = cursor.fetchone()[0]
+
+    # Show scheduled appointments first
+    st.markdown("### Scheduled Appointments")
+    scheduled_query = """
+    SELECT 
+        a.id,
+        d.name as 'Donor Name',
+        bt.bloodType as 'Blood Type',
+        FORMAT(a.appointmentDate, 'yyyy-MM-dd') as Date,
+        FORMAT(a.appointmentTime, 'HH:mm') as Time,
+        a.status as Status
     FROM Appointment a
     JOIN Donor d ON a.donorId = d.id
     JOIN BloodType bt ON d.bloodTypeId = bt.id
-    JOIN Hospital h ON a.hospitalId = h.id
-    JOIN [User] u ON h.id = u.associatedHospitalId
-    WHERE u.id = ?
+    WHERE a.hospitalId = ? AND a.status = 'Scheduled'
     ORDER BY a.appointmentDate, a.appointmentTime
     """
-    cursor.execute(query, (st.session_state.user['id'],))
-    data = cursor.fetchall()
-    data = [row if isinstance(row, tuple) else tuple(row) for row in data]
-    appointments = pd.DataFrame(data, 
-                              columns=['Donor Name', 'Blood Type', 'Date', 'Time', 'Status'])
-    st.table(appointments)
+    cursor.execute(scheduled_query, (hospital_id,))
+    scheduled_data = cursor.fetchall()
+    
+    if scheduled_data:
+        for appointment in scheduled_data:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"**{appointment[1]}** - {appointment[2]}")
+                st.write(f"📅 {appointment[3]} at {appointment[4]}")
+            with col2:
+                if st.button("Complete Donation", key=f"complete_{appointment[0]}"):
+                    try:
+                        update_query = """
+                        UPDATE Appointment 
+                        SET status = 'Completed', updatedAt = GETDATE()
+                        WHERE id = ?
+                        """
+                        cursor.execute(update_query, (appointment[0],))
+                        connection.commit()
+                        st.success("Donation marked as completed!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error updating appointment: {str(e)}")
+            st.divider()
+    else:
+        st.info("No scheduled appointments")
+
+    # Show all appointments
+    st.markdown("### All Appointments")
+    all_appointments_query = """
+    SELECT 
+        d.name as 'Donor Name',
+        bt.bloodType as 'Blood Type',
+        FORMAT(a.appointmentDate, 'yyyy-MM-dd') as Date,
+        FORMAT(a.appointmentTime, 'HH:mm') as Time,
+        a.status as Status
+    FROM Appointment a
+    JOIN Donor d ON a.donorId = d.id
+    JOIN BloodType bt ON d.bloodTypeId = bt.id
+    WHERE a.hospitalId = ?
+    ORDER BY a.appointmentDate DESC, a.appointmentTime DESC
+    """
+    cursor.execute(all_appointments_query, (hospital_id,))
+    all_data = cursor.fetchall()
+    
+    if all_data:
+        all_data = [row if isinstance(row, tuple) else tuple(row) for row in all_data]
+        appointments_df = pd.DataFrame(all_data, 
+                                     columns=['Donor Name', 'Blood Type', 'Date', 'Time', 'Status'])
+        
+        # Add color coding for status
+        def highlight_status(row):
+            if row['Status'] == 'Completed':
+                return ['background-color: #90EE90'] * len(row)  # Green for completed
+            elif row['Status'] == 'Scheduled':
+                return ['background-color: #FFE4B5'] * len(row)  # Orange for scheduled
+            elif row['Status'] == 'Cancelled':
+                return ['background-color: #FFB6C0'] * len(row)  # Red for cancelled
+            return [''] * len(row)
+        
+        styled_df = appointments_df.style.apply(highlight_status, axis=1)
+        st.dataframe(styled_df)
+    else:
+        st.info("No appointments found")
 
 def inventory():
     st.subheader("Blood Bank Inventory")

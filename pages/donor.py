@@ -71,7 +71,7 @@ def profile():
             
             if st.button("Delete My Account", type="secondary") and confirm_delete == "DELETE":
                 try:
-                    # Delete appointments
+                    # Delete appointments first
                     cursor.execute("""
                         DELETE FROM Appointment 
                         WHERE donorId IN (SELECT id FROM Donor WHERE userId = ?)
@@ -89,7 +89,7 @@ def profile():
                     # Clear session state and redirect to login
                     st.session_state.clear()
                     st.success("Your account has been successfully deleted")
-                    st.rerun()  # This will redirect to login since session is cleared
+                    st.rerun()
                     
                 except Exception as e:
                     st.error(f"Error deleting account: {str(e)}")
@@ -336,9 +336,6 @@ def blood_requests():
                 
                 if submit_response:
                     try:
-                        # Start transaction
-                        cursor.execute("BEGIN TRANSACTION")
-                        
                         # Create appointment
                         appointment_query = """
                         INSERT INTO Appointment (
@@ -352,16 +349,19 @@ def blood_requests():
                             selected_date,
                             selected_time
                         ))
+                        connection.commit()
                         
                         # Update blood request
                         update_request_query = """
                         UPDATE BloodRequest 
                         SET fulfilledQuantity = requestedQuantity,
+                            fulfilledBy = ?,
                             requestStatus = 'Fulfilled',
                             updatedAt = GETDATE()
                         WHERE id = ?
                         """
-                        cursor.execute(update_request_query, (request[0],))
+                        cursor.execute(update_request_query, (donor_blood_info[2], request[0]))
+                        connection.commit()
                         
                         # Update donor's last donation date
                         update_donor_query = """
@@ -371,12 +371,10 @@ def blood_requests():
                         WHERE id = ?
                         """
                         cursor.execute(update_donor_query, (selected_date, donor_blood_info[2]))
-                        
-                        # Commit transaction
                         connection.commit()
+                        
                         st.success("Appointment scheduled successfully!")
                         st.rerun()
                         
                     except Exception as e:
-                        connection.rollback()
                         st.error(f"Error scheduling appointment: {str(e)}")

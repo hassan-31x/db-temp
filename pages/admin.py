@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 from pages import blood_drive
 from db import cursor, connection
 
@@ -223,6 +224,7 @@ def blood_bank_inventory():
     """
     cursor.execute(query)
     data = cursor.fetchall()
+    data = [row if isinstance(row, tuple) else tuple(row) for row in data]
     inventory = pd.DataFrame(data, columns=["Blood Type", "Units Available"])
     st.table(inventory)
 
@@ -318,9 +320,14 @@ def reports():
         """
         cursor.execute(query)
         data = cursor.fetchall()
+        data = [row if isinstance(row, tuple) else tuple(row) for row in data]
         distribution = pd.DataFrame(data, columns=["Blood Type", "Donor Count"])
         st.write("Donor Blood Type Distribution")
-        st.pie_chart(distribution.set_index("Blood Type"))
+        
+        # Create pie chart using matplotlib
+        fig, ax = plt.subplots()
+        ax.pie(distribution["Donor Count"], labels=distribution["Blood Type"], autopct='%1.1f%%')
+        st.pyplot(fig)
         
     elif selected_report == "Hospital Performance":
         query = """
@@ -377,6 +384,7 @@ def reports():
         """
         cursor.execute(query)
         data = cursor.fetchall()
+        data = [row if isinstance(row, tuple) else tuple(row) for row in data]
         fulfillment = pd.DataFrame(data, columns=[
             "Blood Type", "Urgency", "Request Count", "Fulfillment Rate (%)"
         ])
